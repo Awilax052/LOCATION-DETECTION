@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Sharing</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            height: 70vh;
+            width: 100%;
+        }
+        .container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .coordinates {
+            font-family: monospace;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Location Sharing</h1>
+        <div id="statusMessage" class="status warning">Please allow location access when prompted</div>
+        
+        <button id="shareLocationBtn" class="btn">Share My Location</button>
+        
+        <div class="coordinates" id="locationCoordinates"></div>
+        
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // Configuration - replace with your GitHub Pages URL or server
+        const SERVER_URL = 'https://YOUR_GITHUB_USERNAME.github.io/location-tracker/save-location.php';
+        
+        // Track if we've sent location
+        let locationSent = false;
+        let map, marker;
+        let userId = generateUserId();
+        
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([0, 0], 2);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+        }
+        
+        // Generate random user ID to identify this session
+        function generateUserId() {
+            return 'user_' + Math.random().toString(36).substring(2, 15);
+        }
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            
+            document.getElementById('shareLocationBtn').addEventListener('click', function() {
+                getLocation();
+                this.disabled = true;
+            });
+        });
+        
+        // Get user's location
+        function getLocation() {
+            updateStatus('Requesting location access...', 'warning');
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    handleLocationSuccess, 
+                    handleLocationError,
+                    { enableHighAccuracy: true }
+                );
+            } else {
+                updateStatus('Geolocation is not supported by this browser.', 'error');
+            }
+        }
+        
+        // Handle successful location retrieval
+        function handleLocationSuccess(position) {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            updateStatus('Location successfully acquired!', 'success');
+            
+            // Update coordinates display
+            document.getElementById('locationCoordinates').innerHTML = 
+                `Latitude: ${latitude.toFixed(6)}<br>Longitude: ${longitude.toFixed(6)}<br>Accuracy: ±${accuracy.toFixed(1)} meters`;
+            
+            // Update map
+            updateMap(latitude, longitude);
+            
+            // Send location data to server
+            sendLocationToServer(position);
+        }
+        
+        // Handle location error
+        function handleLocationError(error) {
+            let message;
+            
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    message = 'User denied the request for location access.';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message = 'Location information is unavailable.';
+                    break;
+                case error.TIMEOUT:
+                    message = 'The request to get user location timed out.';
+                    break;
+                case error.UNKNOWN_ERROR:
+                    message = 'An unknown error occurred.';
+                    break;
+            }
+            
+            updateStatus(message, 'error');
+            document.getElementById('shareLocationBtn').disabled = false;
+        }
+        
+        // Update map with user's location
+        function updateMap(latitude, longitude) {
+            map.setView([latitude, longitude], 16);
+            
+            if (marker) {
+                marker.setLatLng([latitude, longitude]);
+            } else {
+                marker = L.marker([latitude, longitude]).addTo(map);
+            }
+            
+            marker.bindPopup('Your current location').openPopup();
+            
+            // Add a circle to show accuracy
+            L.circle([latitude, longitude], {
+                color: 'blue',
+                fillColor: '#3388ff',
+                fillOpacity: 0.2,
+                radius: 500
+            }).addTo(map);
+        }
+        
+        // Send location to server
+        function sendLocationToServer(position) {
+            if (locationSent) return;
+            
+            const locationData = {
+                userId: userId,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                timestamp: new Date().toISOString()
+            };
+            
+            try {
+                // For demo purposes - in a real app, you'd send this to your server
+                console.log('Would send location data to server:', locationData);
+                localStorage.setItem('lastLocation', JSON.stringify(locationData));
+                
+                // If you actually want to send data to a server:
+                // uncomment the fetch code below and replace SERVER_URL with your endpoint
+                
+                /*
+                fetch(SERVER_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(locationData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    updateStatus('Location shared successfully!', 'success');
+                    locationSent = true;
+                })
+                .catch(error => {
+                    console.error('Error sending location:', error);
+                    updateStatus('Failed to send location data. Please try again.', 'error');
+                    document.getElementById('shareLocationBtn').disabled = false;
+                });
+                */
+                
+                // For this demo, simulate successful sending
+                setTimeout(() => {
+                    updateStatus('Location shared successfully! The page owner can now see your location.', 'success');
+                    locationSent = true;
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Error sending location:', error);
+                updateStatus('Failed to process location data.', 'error');
+                document.getElementById('shareLocationBtn').disabled = false;
+            }
+        }
+        
+        // Update status message
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.textContent = message;
+            statusElement.className = 'status ' + type;
+        }
+    </script>
+</body>
+</html>
