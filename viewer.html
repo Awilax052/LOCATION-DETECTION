@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            height: 80vh;
+            width: 100%;
+        }
+        .container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .btn {
+            background-color: #007bff;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Location Viewer</h1>
+        <div id="statusMessage" class="status info">Click "Refresh" to check for new locations</div>
+        
+        <button id="refreshBtn" class="btn">Refresh Locations</button>
+        
+        <div id="locationList">
+            <h2>Shared Locations</h2>
+            <table id="locationsTable">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Location data will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="map"></div>
+    </div>
+    
+    <script>
+        // Configuration - replace with your server URL
+        const SERVER_URL = 'https://YOUR_SERVER_URL';
+        
+        let map, markers = {};
+        
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([0, 0], 2);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+        }
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            
+            document.getElementById('refreshBtn').addEventListener('click', function() {
+                fetchLocations();
+            });
+            
+            // Initial locations fetch
+            fetchLocations();
+        });
+        
+        // Fetch locations from server
+        function fetchLocations() {
+            updateStatus('Fetching locations...', 'info');
+            
+            fetch(`${SERVER_URL}/locations`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(locations => {
+                    displayLocations(locations);
+                })
+                .catch(error => {
+                    console.error('Error fetching locations:', error);
+                    updateStatus('Failed to fetch locations. Please try again.', 'error');
+                    
+                    // For demo/testing: Show example data when server is not available
+                    const exampleData = {
+                        'user_example1': {
+                            latitude: 40.7128,
+                            longitude: -74.0060,
+                            accuracy: 10,
+                            timestamp: new Date().toISOString()
+                        }
+                    };
+                    displayLocations(exampleData);
+                });
+        }
+        
+        // Display locations on map and in table
+        function displayLocations(locations) {
+            const locationCount = Object.keys(locations).length;
+            
+            if (locationCount === 0) {
+                updateStatus('No locations shared yet.', 'info');
+                document.getElementById('locationsTable').querySelector('tbody').innerHTML = 
+                    '<tr><td colspan="5">No locations available</td></tr>';
+                return;
+            }
+            
+            updateStatus(`Found ${locationCount} shared location(s)`, 'info');
+            
+            // Clear existing table rows
+            const tableBody = document.getElementById('locationsTable').querySelector('tbody');
+            tableBody.innerHTML = '';
+            
+            // Add locations to table and map
+            for (const userId in locations) {
+                const location = locations[userId];
+                
+                // Add to table
+                const row = tableBody.insertRow();
+                
+                const userCell = row.insertCell(0);
+                userCell.textContent = userId.substring(0, 8) + '...';
+                
+                const latCell = row.insertCell(1);
+                latCell.textContent = location.latitude.toFixed(6);
+                
+                const lngCell = row.insertCell(2);
+                lngCell.textContent = location.longitude.toFixed(6);
+                
+                const timeCell = row.insertCell(3);
+                const timestamp = new Date(location.timestamp);
+                timeCell.textContent = timestamp.toLocaleString();
+                
+                const actionCell = row.insertCell(4);
+                const viewBtn = document.createElement('button');
+                viewBtn.textContent = 'View on Map';
+                viewBtn.className = 'btn';
+                viewBtn.onclick = function() {
+                    focusOnLocation(location.latitude, location.longitude);
+                };
+                actionCell.appendChild(viewBtn);
+                
+                // Add/update marker on map
+                updateMapMarker(userId, location.latitude, location.longitude, timestamp.toLocaleString());
+            }
+            
+            // If we have exactly one location, focus on it
+            if (locationCount === 1) {
+                const location = Object.values(locations)[0];
+                focusOnLocation(location.latitude, location.longitude);
+            } else {
+                // Otherwise fit bounds to show all markers
+                const markerBounds = L.featureGroup(Object.values(markers)).getBounds();
+                if (markerBounds.isValid()) {
+                    map.fitBounds(markerBounds);
+                }
+            }
+        }
+        
+        // Update or create marker on map
+        function updateMapMarker(userId, latitude, longitude, timestamp) {
+            const popupContent = `
+                <strong>User:</strong> ${userId.substring(0, 8)}...<br>
+                <strong>Latitude:</strong> ${latitude.toFixed(6)}<br>
+                <strong>Longitude:</strong> ${longitude.toFixed(6)}<br>
+                <strong>Time:</strong> ${timestamp}
+            `;
+            
+            if (markers[userId]) {
+                // Update existing marker
+                markers[userId].setLatLng([latitude, longitude]);
+                markers[userId].getPopup().setContent(popupContent);
+            } else {
+                // Create new marker
+                markers[userId] = L.marker([latitude, longitude])
+                    .bindPopup(popupContent)
+                    .addTo(map);
+            }
+        }
+        
+        // Focus map on specific location
+        function focusOnLocation(latitude, longitude) {
+            map.setView([latitude, longitude], 16);
+        }
+        
+        // Update status message
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.textContent = message;
+            statusElement.className = 'status ' + type;
+        }
+    </script>
+</body>
+</html>
